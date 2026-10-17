@@ -3,14 +3,15 @@ import { applyOp } from '#lib/editor/ops.ts';
 import { starterPortfolio } from '#lib/portfolio/defaults.ts';
 import { BENCH_CASES, benchAfter, benchStart, summarize } from './bench.ts';
 import { buildMessages, describePortfolio } from './prompt.ts';
-import { parseResponse, RESPONSE_SCHEMA, translate, type AiAction } from './protocol.ts';
+import { guard, parseResponse, RESPONSE_SCHEMA, translate, type AiAction } from './protocol.ts';
 
 const p = () => starterPortfolio('minimal');
 const run = (actions: AiAction[]) => translate(p(), actions, applyOp);
 
 describe('parseResponse', () => {
 	it('accepts plain and fenced JSON', () => {
-		expect(parseResponse('{"reply":"ok","actions":[]}')).toEqual({ ok: true, response: { reply: 'ok', actions: [] } });
+		expect(parseResponse('{"actions":[],"ask":"Which colour?"}')).toEqual({ ok: true, response: { reply: 'Which colour?', actions: [] } });
+		expect(parseResponse('{"actions":[]}')).toEqual({ ok: true, response: { reply: '', actions: [] } });
 		const fenced = parseResponse('Sure!\n```json\n{"reply":"x","actions":[{"action":"set_layout","layout":"split"}]}\n```');
 		expect(fenced.ok && fenced.response.actions).toHaveLength(1);
 	});
@@ -78,18 +79,59 @@ describe('translate', () => {
 	});
 });
 
+describe('guard', () => {
+	it('drops theme changes the user did not ask for', () => {
+		const g = guard([{ action: 'set_theme', mode: 'dark', accent: '#ff0000' }, { action: 'set_template', template: 'bento' }], 'more professional with project cards', p());
+		expect(g.actions).toEqual([{ action: 'set_template', template: 'bento' }]);
+		expect(g.dropped).toHaveLength(2);
+		expect(guard([{ action: 'set_theme', mode: 'dark' }], 'switch to dark mode', p()).actions).toHaveLength(1);
+		expect(guard([{ action: 'set_theme', accent: '#16a34a' }], 'make the accent green', p()).actions).toHaveLength(1);
+	});
+
+	it('removes invented links but keeps ones from the message or portfolio', () => {
+		const g = guard(
+			[{ action: 'add_item', section: 'projects', item: { name: 'Weather Bot', url: 'https://github.com/alexmorgant/weather' } }],
+			'Add a project called Weather Bot',
+			p()
+		);
+		expect(g.actions[0]).toEqual({ action: 'add_item', section: 'projects', item: { name: 'Weather Bot' } });
+		const ok = guard([{ action: 'add_item', section: 'contact', item: { label: 'GitHub', url: 'https://github.com/priya' } }], 'add my github https://github.com/priya', p());
+		expect(ok.dropped).toEqual([]);
+		expect(guard([{ action: 'set_text', section: 'contact', field: 'email', value: 'made@up.com' }], 'update my email', p()).actions).toEqual([]);
+	});
+
+	it('ignores adding a section that already exists instead of failing', () => {
+		const g = guard([{ action: 'add_section', section: 'projects' }, { action: 'add_item', section: 'projects', item: { name: 'X' } }], 'add project X', p());
+		expect(g.actions.map((a) => a.action)).toEqual(['add_item']);
+	});
+
+	it('translate skips actions that change nothing', () => {
+		const r = run([
+			{ action: 'update_profile', field: 'location', value: 'Remote' },
+			{ action: 'set_template', template: 'bento' }
+		]);
+		expect(r.ok && r.ops.map((o) => o.op)).toEqual(['setTemplate']);
+	});
+});
+
 describe('prompt', () => {
 	it('summarizes the portfolio compactly with names the model can use', () => {
 		const text = describePortfolio(p());
 		expect(text).toContain('projects titled "Projects"');
 		expect(text).toContain('"Trail Finder"');
-		expect(text.length).toBeLessThan(1500);
+		expect(text.length).toBeLessThan(1000);
+	});
+
+	it('whole prompt stays small (prefill time on weak GPUs)', () => {
+		const chars = buildMessages(p(), 'Add a project called Weather Bot').reduce((n, m) => n + m.content.length, 0);
+		// ~4 chars per token: keep under ~725 tokens (was ~1,250 before trimming).
+		expect(chars).toBeLessThan(2900);
 	});
 
 	it('keeps only recent history', () => {
 		const history = Array.from({ length: 10 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: `turn ${i}` }));
 		const messages = buildMessages(p(), 'hi', history);
-		expect(messages.filter((m) => m.content.startsWith('turn'))).toHaveLength(4);
+		expect(messages.filter((m) => m.content.startsWith('turn'))).toHaveLength(2);
 		expect(messages.at(-1)!.content).toContain('Request: hi');
 	});
 
@@ -148,6 +190,14 @@ describe('bench', () => {
 			if (!t.ok) continue;
 			const after = benchAfter(t.ops)!;
 			expect(c.check(after, t.ops), c.id).toBe(true);
+		}
+	});
+
+	it('guardrails never remove part of a correct answer', () => {
+		for (const c of BENCH_CASES) {
+			const g = guard(IDEAL[c.id], c.request, benchStart());
+			expect(g.dropped, c.id).toEqual([]);
+			expect(g.actions, c.id).toEqual(IDEAL[c.id]);
 		}
 	});
 

@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { tick } from 'svelte';
-	import { assistant } from '#lib/ai/assistant.svelte.ts';
+	import { assistant, type GenerateStats } from '#lib/ai/assistant.svelte.ts';
 	import { modelByBase } from '#lib/ai/models.ts';
 	import type { ChatTurn } from '#lib/ai/prompt.ts';
 	import type { Editor } from '#lib/editor/editor.svelte.ts';
+	import { describeOps } from '#lib/editor/ops.ts';
 
 	let { editor, onreview }: { editor: Editor; onreview: () => void } = $props();
 
@@ -14,6 +15,15 @@
 	let input = $state('');
 	let thinking = $state(false);
 	let log = $state<HTMLDivElement>();
+	let now = $state(Date.now());
+
+	// Tick once a second while the model works, for the elapsed-time label.
+	$effect(() => {
+		if (!thinking) return;
+		const id = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(id);
+	});
+	const elapsed = $derived(a.generating ? Math.max(0, Math.round((now - a.generating.startedAt) / 1000)) : 0);
 
 	const SUGGESTIONS = ['Switch to dark mode', 'Add my GitHub link https://github.com/', 'Move projects to the top', 'Hide the education section'];
 	const model = $derived(modelByBase(a.selected));
@@ -21,6 +31,10 @@
 	async function scrollDown() {
 		await tick();
 		log?.scrollTo({ top: log.scrollHeight, behavior: 'smooth' });
+	}
+
+	function timing(s: GenerateStats): string {
+		return `${s.latencyS.toFixed(1)} s · read ${s.promptTokens} tokens · wrote ${s.completionTokens} at ${s.decodeTokensPerS.toFixed(1)}/s`;
 	}
 
 	function history(): ChatTurn[] {
@@ -36,7 +50,8 @@
 		thinking = true;
 		scrollDown();
 
-		const res = await a.generate(editor.proposed, text, prior);
+		const before = editor.proposed;
+		const res = await a.generate(before, text, prior);
 		thinking = false;
 
 		if (res.kind === 'ok') {
@@ -44,10 +59,20 @@
 				const error = editor.editAll(res.ops);
 				if (error) editor.chat.push({ role: 'assistant', text: '', error: `That change didn't fit your current draft: ${error}` });
 				else {
-					editor.chat.push({ role: 'assistant', text: res.reply || 'Here is the change.', proposed: res.ops.length });
+					editor.chat.push({
+						role: 'assistant',
+						text: describeOps(before, res.ops).join(' · '),
+						note: res.dropped.length ? `Skipped ${[...new Set(res.dropped)].join(', ')}.` : undefined,
+						meta: timing(res.stats),
+						proposed: res.ops.length
+					});
 					onreview();
 				}
-			} else editor.chat.push({ role: 'assistant', text: res.reply || "I didn't find anything to change. Could you say it another way?" });
+			} else
+				editor.chat.push({
+					role: 'assistant',
+					text: res.reply || (res.dropped.length ? `I only came up with changes you didn't ask for (${[...new Set(res.dropped)].join(', ')}), so I skipped them. Could you be more specific?` : "I didn't find anything to change. Could you say it another way?")
+				});
 		} else if (res.kind === 'invalid') {
 			editor.chat.push({ role: 'assistant', text: res.reply, error: `I couldn't turn that into a safe change (${res.error}). Nothing was modified. Try rephrasing, or edit it in the Content tab.` });
 		} else if (res.kind === 'interrupted') {
@@ -107,6 +132,8 @@
 				{:else}
 					<div class="mr-8 space-y-1.5 rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-slate-800">
 						{#if m.text}<p>{m.text}</p>{/if}
+						{#if m.note}<p class="text-xs text-slate-500">{m.note}</p>{/if}
+						{#if m.meta}<p class="text-[10px] text-slate-400 tabular-nums">{m.meta}</p>{/if}
 						{#if m.error}<p class="text-red-700">{m.error}</p>{/if}
 						{#if m.proposed}
 							<button type="button" class="text-xs font-medium text-indigo-700 hover:underline" onclick={onreview}>
@@ -123,7 +150,11 @@
 							class="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:.3s]"
 						></span></span
 					>
-					Thinking on your device…
+					<span>
+						{#if !a.generating || a.generating.tokens === 0}Reading your request…{:else}Writing the change… ({a.generating.tokens} tokens){/if}
+						<span class="text-slate-400 tabular-nums">{elapsed}s</span>
+						{#if elapsed >= 20}<span class="block text-xs text-slate-400">Slower devices can take up to a minute.</span>{/if}
+					</span>
 					<button type="button" class="ml-auto text-xs hover:text-slate-900" onclick={() => a.interrupt()}>Stop</button>
 				</div>
 			{/if}

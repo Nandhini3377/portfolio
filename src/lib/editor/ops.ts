@@ -191,6 +191,17 @@ function sectionName(p: Portfolio, id: string): string {
 	return s ? `"${s.title || SECTION_LABELS[s.type]}"` : 'a section';
 }
 
+/** Describes a sequence of ops, each against the state it applies to. */
+export function describeOps(p: Portfolio, ops: EditOp[]): string[] {
+	let current = p;
+	return ops.map((op) => {
+		const label = describeOp(op, current);
+		const next = applyOp(current, op);
+		if (next.ok) current = next.portfolio;
+		return label;
+	});
+}
+
 /** Short human description, shown in the change review. `p` is the state before the op. */
 export function describeOp(op: EditOp, p: Portfolio): string {
 	switch (op.op) {

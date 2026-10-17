@@ -9,7 +9,7 @@ import { checkDevice, type DeviceReport } from './capability.ts';
 import { DEFAULT_MODEL, MODELS, modelByBase, variantFor } from './models.ts';
 import { isModelCached } from './prebuilt.ts';
 import { buildMessages, type ChatTurn } from './prompt.ts';
-import { parseResponse, RESPONSE_SCHEMA, translate, type AiAction } from './protocol.ts';
+import { guard, parseResponse, RESPONSE_SCHEMA, translate, type AiAction } from './protocol.ts';
 
 export type ModelStatus = 'checking' | 'unsupported' | 'idle' | 'downloading' | 'loading' | 'ready' | 'error';
 
@@ -21,12 +21,13 @@ export interface GenerateStats {
 }
 
 export type GenerateResult =
-	| { kind: 'ok'; reply: string; actions: AiAction[]; ops: EditOp[]; raw: string; stats: GenerateStats }
+	| { kind: 'ok'; reply: string; actions: AiAction[]; ops: EditOp[]; dropped: string[]; raw: string; stats: GenerateStats }
 	| { kind: 'invalid'; reply: string; error: string; raw: string; stats?: GenerateStats }
 	| { kind: 'interrupted' }
 	| { kind: 'error'; error: string };
 
 const SELECTED_KEY = 'portfolio-builder:model';
+export const GENERATE_TIMEOUT_MS = 90_000;
 
 function readSelected(): string {
 	try {
@@ -58,6 +59,8 @@ class Assistant {
 	error = $state('');
 	loadedModel = $state<string | null>(null);
 	busy = $state(false);
+	/** Live progress of the current request: 0 tokens means it is still reading the prompt. */
+	generating = $state<{ startedAt: number; tokens: number } | null>(null);
 
 	#engine: WebWorkerMLCEngine | null = null;
 	#worker: Worker | null = null;
@@ -181,34 +184,55 @@ class Assistant {
 	/** One request → validated edit operations (or a reason it couldn't). */
 	async generate(portfolio: Portfolio, request: string, history: ChatTurn[] = []): Promise<GenerateResult> {
 		if (!this.#engine || this.status !== 'ready') return { kind: 'error', error: 'The AI model is not loaded.' };
+		const engine = this.#engine;
 		this.busy = true;
 		const started = performance.now();
+		this.generating = { startedAt: Date.now(), tokens: 0 };
 		let raw = '';
+		let timedOut = false;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			void engine.interruptGenerate();
+		}, GENERATE_TIMEOUT_MS);
 		try {
 			const thinking = modelByBase(this.selected)?.thinking;
-			const completion = await this.#engine.chat.completions.create({
+			const stream = await engine.chat.completions.create({
 				messages: buildMessages(portfolio, request, history),
 				temperature: 0,
-				max_tokens: 700,
+				max_tokens: 300,
+				stream: true,
+				stream_options: { include_usage: true },
 				response_format: { type: 'json_object', schema: JSON.stringify(RESPONSE_SCHEMA) },
 				...(thinking ? { extra_body: { enable_thinking: false } } : {})
 			});
-			const choice = completion.choices[0];
-			raw = choice?.message?.content ?? '';
-			const usage = completion.usage;
+			let finish: string | null | undefined;
+			let usage: { prompt_tokens: number; completion_tokens: number; extra?: { decode_tokens_per_s?: number } } | undefined;
+			for await (const chunk of stream) {
+				const choice = chunk.choices[0];
+				if (choice?.delta?.content) {
+					raw += choice.delta.content;
+					this.generating = { startedAt: this.generating!.startedAt, tokens: this.generating!.tokens + 1 };
+				}
+				if (choice?.finish_reason) finish = choice.finish_reason;
+				if (chunk.usage) usage = chunk.usage;
+			}
 			const stats: GenerateStats = {
 				latencyS: (performance.now() - started) / 1000,
 				promptTokens: usage?.prompt_tokens ?? 0,
 				completionTokens: usage?.completion_tokens ?? 0,
 				decodeTokensPerS: usage?.extra?.decode_tokens_per_s ?? 0
 			};
-			if (choice?.finish_reason === 'abort') return { kind: 'interrupted' };
+			if (timedOut)
+				return { kind: 'error', error: `This took longer than ${GENERATE_TIMEOUT_MS / 1000} seconds on your device, so I stopped. Try a shorter request, or a smaller model on the AI model page.` };
+			if (finish === 'abort') return { kind: 'interrupted' };
+			if (finish === 'length') return { kind: 'invalid', reply: '', error: 'The answer was too long. Try asking for fewer changes at once.', raw, stats };
 
 			const parsed = parseResponse(raw);
 			if (!parsed.ok) return { kind: 'invalid', reply: '', error: parsed.error, raw, stats };
-			const translated = translate(portfolio, parsed.response.actions, applyOp);
+			const guarded = guard(parsed.response.actions, request, portfolio);
+			const translated = translate(portfolio, guarded.actions, applyOp);
 			if (!translated.ok) return { kind: 'invalid', reply: parsed.response.reply, error: translated.error, raw, stats };
-			return { kind: 'ok', reply: parsed.response.reply, actions: parsed.response.actions, ops: translated.ops, raw, stats };
+			return { kind: 'ok', reply: parsed.response.reply, actions: guarded.actions, ops: translated.ops, dropped: guarded.dropped, raw, stats };
 		} catch (e) {
 			const error = friendly(e);
 			if (/device was reset/i.test(error)) {
@@ -218,6 +242,8 @@ class Assistant {
 			}
 			return { kind: 'error', error };
 		} finally {
+			clearTimeout(timer);
+			this.generating = null;
 			this.busy = false;
 		}
 	}

@@ -28,3 +28,17 @@ Decisions that refine or override [PRD.md](PRD.md). Newest at the bottom. Each e
 | D15 | One section per type | A portfolio has at most one section of each type (intro, skills, projects, experience, education, contact). | Simpler model and simpler for a small model to target ("add a projects section"). |
 | D16 | Exports | Exports contain **approved** state only. SvelteKit export copies the renderer source so output is identical to the preview. | Pending edits are not yet accepted. |
 | D17 | Builder hosting | Builder is a fully static SPA (`adapter-static`, `ssr = false`), offline via service worker. | No backend needed; deployable anywhere, works offline. |
+
+## 2026-10-17 — Phase 2 (local model)
+
+| # | Topic | Decision | Why |
+|---|-------|----------|-----|
+| D18 | Runtime | **WebLLM 0.2.86** (`@mlc-ai/web-llm`), inference in a **Web Worker**, weights cached with the browser Cache API. | Supports JSON-schema constrained decoding (guaranteed-valid JSON), ships prebuilt Qwen 0.5–3B models, keeps the UI responsive. |
+| D19 | Candidate models (≤3B, user's limit) | Qwen2.5-Coder **1.5B (default)**, Qwen2.5-Coder 3B, Qwen3.5 2B, Qwen3 1.7B, Qwen2.5-Coder 0.5B. User chooses on `/model`; choice stored per browser. `q4f16` when the GPU supports `shader-f16`, else `q4f32`. | User asked for the best coding model ≤3B; final pick decided by the on-device benchmark (D22). |
+| D20 | Model output format | Model emits flat **AI actions** (`hide_section`, `add_item`…) that name sections by type and entries by name. `translate()` resolves names → ids and produces engine `EditOp`s, which are validated as usual. Batch is all-or-nothing. | Small models handle human names far better than generated ids; engine validation still guards everything. |
+| D21 | Context budget | Prompt = system rules + 3 few-shot examples + compact text summary of the portfolio + last 4 chat turns; `max_tokens` 700; temperature 0. Qwen3-family thinking disabled. | Fits comfortably in the 4k context of browser models; deterministic output. |
+| D22 | Model selection method | `/model/bench` runs 30 realistic requests, auto-checks each result, and records correct / applied / valid-JSON rates, median latency and tokens/s per model on the user's device. | PRD §5.4/§15: benchmark before finalizing the model. |
+| D23 | Bundle | Cache status is checked with the Cache API directly (`prebuilt.ts`), so the ~6 MB WebLLM runtime loads only when a model is loaded or removed. | Keeps start page and editor light. |
+| D24 | Chat UX | Chat is the default editor tab. AI proposals go through the same pending → review → approve flow as manual edits, and follow-up messages see the proposed (unapproved) state so "no, make it purple" revises naturally. | PRD: approve/reject/revise; one review path. |
+| D25 | Output budget | Model returns only `{"actions":[...]}` (+ optional `"ask"` question); the app writes the summary from the actual ops. Max 5 actions / 300 tokens; streaming with live progress; 90 s timeout. | Measured 4.7 tok/s decode on an Intel iGPU: output length dominates latency. Also prevents replies that claim changes that weren't made. |
+| D26 | Guardrails | Before translation: drop theme fields the request doesn't mention, links/emails not present in the message or portfolio, and `add_section` for existing sections; after translation: drop no-op ops. Removals are shown to the user. | 1.5B model added unrequested dark mode and invented a GitHub URL in testing. |

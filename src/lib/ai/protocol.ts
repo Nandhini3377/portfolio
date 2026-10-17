@@ -60,6 +60,7 @@ export type AiAction =
 	| { action: 'remove_item'; section: string; item: string };
 
 export interface AiResponse {
+	/** A clarifying question from the model ("ask"); empty when it just made changes. */
 	reply: string;
 	actions: AiAction[];
 }
@@ -82,11 +83,12 @@ function actionSchema(name: string, props: Record<string, unknown>, required: st
 
 export const RESPONSE_SCHEMA = {
 	type: 'object',
+	// Actions come first and there is no free-text summary: on slow GPUs every
+	// generated token costs ~0.2 s, and the app describes the changes itself.
 	properties: {
-		reply: str,
 		actions: {
 			type: 'array',
-			maxItems: 8,
+			maxItems: 5,
 			items: {
 				anyOf: [
 					actionSchema('set_theme', { mode: enumOf(THEME_MODES), accent: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, font: enumOf(FONTS) }, []),
@@ -112,9 +114,10 @@ export const RESPONSE_SCHEMA = {
 					actionSchema('remove_item', { section: enumOf(LIST_TYPES), item: str }, ['section', 'item'])
 				]
 			}
-		}
+		},
+		ask: str
 	},
-	required: ['reply', 'actions'],
+	required: ['actions'],
 	additionalProperties: false
 } as const;
 
@@ -135,11 +138,70 @@ export function parseResponse(raw: string): ParseResult {
 	}
 	const d = data as Partial<AiResponse>;
 	if (typeof d !== 'object' || d === null) return { ok: false, error: 'The model response was not an object.' };
-	const reply = typeof d.reply === 'string' ? d.reply.trim() : '';
+	const ask = (d as { ask?: unknown }).ask ?? d.reply;
+	const reply = typeof ask === 'string' ? ask.trim() : '';
 	const actions = Array.isArray(d.actions) ? d.actions : [];
 	if (!actions.every((a) => typeof a === 'object' && a !== null && typeof (a as { action?: unknown }).action === 'string'))
 		return { ok: false, error: 'The model returned an action without a name.' };
 	return { ok: true, response: { reply, actions: actions as AiAction[] } };
+}
+
+// ---------- Guardrails ----------
+//
+// Small models tend to "help" beyond the request: switching to dark mode when
+// asked for cards, or inventing a GitHub URL. These checks remove what the user
+// clearly didn't ask for before anything reaches the review screen.
+
+const THEME_WORDS = {
+	mode: /\b(dark|light|night|mode|theme)\b/i,
+	accent: /colou?r|accent|red|orange|yellow|green|blue|purple|violet|pink|teal|lime|black|brand/i,
+	font: /font|serif|mono|typeface|typography|lettering/i
+};
+const URL_FIELDS = new Set(['url', 'repoUrl', 'avatarUrl', 'email']);
+
+export interface GuardResult {
+	actions: AiAction[];
+	/** Human-readable notes about what was removed. */
+	dropped: string[];
+}
+
+export function guard(actions: AiAction[], request: string, p: Portfolio): GuardResult {
+	const known = `${request}\n${JSON.stringify(p)}`.toLowerCase();
+	const invented = (v: unknown) => typeof v === 'string' && v.trim() !== '' && !known.includes(v.trim().toLowerCase().replace(/^mailto:/, ''));
+	const dropped: string[] = [];
+	const kept: AiAction[] = [];
+
+	for (const a of actions) {
+		if (a.action === 'set_theme') {
+			const next = { ...a };
+			for (const key of ['mode', 'accent', 'font'] as const) {
+				if (next[key] !== undefined && !THEME_WORDS[key].test(request)) {
+					delete next[key];
+					dropped.push(`unrequested ${key} change`);
+				}
+			}
+			if (next.mode !== undefined || next.accent !== undefined || next.font !== undefined) kept.push(next);
+			continue;
+		}
+		if (a.action === 'add_section' && p.sections.some((s) => s.type === String(a.section).toLowerCase())) continue;
+		if ((a.action === 'update_profile' || a.action === 'update_item' || a.action === 'set_text') && URL_FIELDS.has(a.field) && invented(a.value)) {
+			dropped.push(`a ${a.field} that wasn't in your message`);
+			continue;
+		}
+		if (a.action === 'add_item' && a.item && typeof a.item === 'object') {
+			const item = { ...a.item };
+			for (const f of ['url', 'repoUrl']) {
+				if (invented(item[f])) {
+					delete item[f];
+					dropped.push(`a ${f === 'repoUrl' ? 'source' : ''} link that wasn't in your message`.replace('  ', ' '));
+				}
+			}
+			kept.push({ ...a, item });
+			continue;
+		}
+		kept.push(a);
+	}
+	return { actions: kept, dropped };
 }
 
 // ---------- Translation ----------
@@ -270,8 +332,11 @@ export function translate(
 			const op = one(current, a);
 			const result = apply(current, op);
 			if (!result.ok) fail(`Step ${i + 1} (${a.action}): ${result.error}`);
-			else current = result.portfolio;
-			ops.push(op);
+			// Skip actions that change nothing (models often restate current values).
+			else if (JSON.stringify(result.portfolio) !== JSON.stringify(current)) {
+				current = result.portfolio;
+				ops.push(op);
+			}
 		}
 	} catch (e) {
 		if (e instanceof TranslateError) return { ok: false, error: e.message };

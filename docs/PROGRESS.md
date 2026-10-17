@@ -2,7 +2,7 @@
 
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
-**Current focus:** Phase 1 complete — waiting on user's model choice for Phase 2
+**Current focus:** Phase 2 — local AI working; full 30-case benchmark run still to do (user can run it at /model/bench)
 
 ## Phase 0 — Project tracking
 - [x] git repo
@@ -27,10 +27,14 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 **Known gaps / ideas for later:** accent colour isn't contrast-checked against the background; no drag-and-drop reordering (up/down buttons only); photo is a link, not an upload.
 
 ## Phase 2 — Local SLM (model to be specified by user)
-- [ ] WebGPU / device capability check screen
-- [ ] Model download with progress, retry, cache, remove
-- [ ] Chat UI → model → edit operations → change review
-- [ ] Benchmark on ~8 GB RAM device
+- [x] WebGPU / device capability check screen (`/model`)
+- [x] Model download with progress, retry, cache, remove
+- [x] Chat UI → model → edit operations → change review (Chat tab)
+- [x] Guardrails: drop unrequested theme changes, invented links/emails, no-op actions
+- [x] Live progress, elapsed time, 90 s timeout, Stop button
+- [~] Benchmark page (`/model/bench`, 30 cases) built; full run on each candidate model still to do
+
+**Measured on Intel Gen-9 integrated GPU (2026-10-17), Qwen2.5-Coder-1.5B q4f16:** download ~830 MB in ~30 s; reading the prompt ~680 tokens @ 80–90 tok/s (~8 s); writing @ ~4.7 tok/s. Typical request 11–25 s. Before trimming the prompt and removing the free-text reply, the same request took 90 s+ (model wrote up to 400 tokens).
 
 ## Phase 3 — GitHub
 - [ ] Guided account + token creation, paste token

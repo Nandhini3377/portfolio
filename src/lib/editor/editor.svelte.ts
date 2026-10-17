@@ -2,7 +2,7 @@
 // UI components call these methods; they never edit portfolio objects directly.
 
 import { diffPortfolios } from './diff';
-import { applyOp, describeOp, type EditOp } from './ops';
+import { describeOps, type EditOp } from './ops';
 import * as project from './project';
 import type { ProjectState } from './project';
 import { saveProject } from '#lib/storage/projects.ts';
@@ -13,6 +13,10 @@ export interface ChatEntry {
 	role: 'user' | 'assistant';
 	text: string;
 	error?: string;
+	/** Extra context, e.g. what the guardrails removed. */
+	note?: string;
+	/** Timing details of the model call. */
+	meta?: string;
 	/** Number of edit operations this reply staged for review. */
 	proposed?: number;
 }
@@ -55,15 +59,7 @@ export class Editor {
 	}
 
 	/** Labels for pending ops, each described against the state it applied to. */
-	pendingSummary = $derived.by(() => {
-		let current = this.state.committed;
-		return this.state.pending.map((op) => {
-			const label = describeOp(op, current);
-			const next = applyOp(current, op);
-			if (next.ok) current = next.portfolio;
-			return label;
-		});
-	});
+	pendingSummary = $derived(describeOps(this.state.committed, this.state.pending));
 
 	#set(next: ProjectState) {
 		if (next === this.state) return;
