@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import logo from '#lib/assets/favicon.svg';
 	import { resolve } from '$app/paths';
+	import { assistant } from '#lib/ai/assistant.svelte.ts';
 	import Preview from '#lib/components/Preview.svelte';
 	import StorageBanner from '#lib/components/StorageBanner.svelte';
 	import { createProject } from '#lib/editor/project.ts';
@@ -16,6 +17,8 @@
 	let busy = $state(false);
 
 	const previews = Object.fromEntries(TEMPLATE_IDS.map((t) => [t, starterPortfolio(t)])) as Record<TemplateId, Portfolio>;
+
+	$effect(() => void assistant.init());
 
 	$effect(() => {
 		checkStorage().then(async (s) => {
@@ -125,11 +128,24 @@
 			</div>
 		</section>
 
-		<section class="rounded-2xl border border-slate-200 bg-white p-5">
-			<h2 class="font-semibold text-slate-900">Coming next: chat with a local AI</h2>
-			<p class="mt-1 text-sm text-slate-600">
-				Describe a change like "switch to dark mode" and a model running on your device will propose it for review. Then publish to GitHub and Vercel in a few clicks.
-			</p>
+		<section class="flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5" aria-labelledby="ai-h">
+			<div class="min-w-0 flex-1">
+				<h2 id="ai-h" class="font-semibold text-slate-900">AI assistant</h2>
+				<p class="mt-1 text-sm text-slate-600">
+					{#if assistant.status === 'unsupported'}
+						This browser can't run the on-device model (WebGPU is missing). Manual editing works everywhere.
+					{:else if Object.values(assistant.cached).some(Boolean)}
+						Downloaded and ready to use offline. Open a portfolio and use the Chat tab.
+					{:else}
+						Describe changes in plain words. A small model runs on your device after a one-time download; nothing you type is sent to an AI service.
+					{/if}
+				</p>
+			</div>
+			{#if assistant.status !== 'unsupported'}
+				<a href={resolve('/model')} class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+					{Object.values(assistant.cached).some(Boolean) ? 'Manage model' : 'Set up'}
+				</a>
+			{/if}
 		</section>
 	</main>
 </div>

@@ -9,6 +9,14 @@ import { saveProject } from '#lib/storage/projects.ts';
 
 export type SaveStatus = 'saved' | 'saving' | 'error';
 
+export interface ChatEntry {
+	role: 'user' | 'assistant';
+	text: string;
+	error?: string;
+	/** Number of edit operations this reply staged for review. */
+	proposed?: number;
+}
+
 const FIELD_NAMES: Record<string, string> = {
 	url: 'Link',
 	repoUrl: 'Source code link',
@@ -31,6 +39,8 @@ export class Editor {
 	error = $state<{ message: string; key?: string } | null>(null);
 	saveStatus = $state<SaveStatus>('saved');
 	saveError = $state('');
+	/** Chat with the local model for this editing session (not persisted). */
+	chat = $state<ChatEntry[]>([]);
 
 	proposed = $derived(project.proposed(this.state));
 	hasPending = $derived(this.state.pending.length > 0);

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import ChatPanel from '#lib/components/ChatPanel.svelte';
 	import ContentPanel from '#lib/components/ContentPanel.svelte';
 	import DesignPanel from '#lib/components/DesignPanel.svelte';
 	import IconButton from '#lib/components/IconButton.svelte';
@@ -17,7 +18,7 @@
 	let notice = $state('');
 	let storage = $state<StorageStatus | null>(null);
 
-	let tab = $state<'content' | 'design'>('content');
+	let tab = $state<'chat' | 'content' | 'design'>('chat');
 	let device = $state<'desktop' | 'mobile'>('desktop');
 	let showCurrent = $state(false);
 	let reviewOpen = $state(false);
@@ -146,21 +147,23 @@
 			<!-- Editing panel -->
 			<aside class="w-full shrink-0 flex-col border-r border-slate-200 bg-white lg:flex lg:w-[380px] {mobileView === 'edit' ? 'flex' : 'hidden'}">
 				<div class="flex gap-1 border-b border-slate-200 p-2" role="tablist">
-					{#each ['content', 'design'] as const as t (t)}
+					{#each ['chat', 'content', 'design'] as const as t (t)}
 						<button
 							type="button"
 							role="tab"
 							aria-selected={tab === t}
 							class="flex-1 rounded-md py-1.5 text-sm font-medium {tab === t ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-800'}"
-							onclick={() => (tab = t)}>{t === 'content' ? 'Content' : 'Design'}</button
+							onclick={() => (tab = t)}>{t === 'chat' ? 'Chat' : t === 'content' ? 'Content' : 'Design'}</button
 						>
 					{/each}
 				</div>
-				<div class="min-h-0 flex-1 overflow-y-auto p-4" role="tabpanel">
+				<div class="min-h-0 flex-1 p-4 {tab === 'chat' ? 'flex flex-col' : 'overflow-y-auto'}" role="tabpanel">
 					{#if editor.error && !editor.error.key}
 						<p class="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{editor.error.message}</p>
 					{/if}
-					{#if tab === 'content'}<ContentPanel {editor} />{:else}<DesignPanel {editor} />{/if}
+					{#if tab === 'chat'}
+						<ChatPanel {editor} onreview={() => ((reviewOpen = true), (mobileView = 'preview'))} />
+					{:else if tab === 'content'}<ContentPanel {editor} />{:else}<DesignPanel {editor} />{/if}
 				</div>
 			</aside>
 
