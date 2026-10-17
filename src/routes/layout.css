@@ -1,9 +1,0 @@
-@import 'tailwindcss';
-@plugin '@tailwindcss/forms';
-
-@layer base {
-	html {
-		background: var(--color-slate-100);
-		color: var(--color-slate-900);
-	}
-}
