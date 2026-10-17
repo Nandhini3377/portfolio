@@ -1,13 +1,13 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '#lib/assets/favicon.svg';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<title>Portfolio Builder</title>
+	<meta name="description" content="Build a personal portfolio on your own device." />
 </svelte:head>
 
 {@render children()}

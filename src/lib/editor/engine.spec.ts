@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { emptySection, starterPortfolio } from '#lib/portfolio/defaults';
-import { TEMPLATE_IDS } from '#lib/portfolio/types';
-import { validatePortfolio } from '#lib/portfolio/validate';
-import { renderPortfolio } from '#lib/render';
+import { emptySection, starterPortfolio } from '#lib/portfolio/defaults.ts';
+import { TEMPLATE_IDS } from '#lib/portfolio/types.ts';
+import { validatePortfolio } from '#lib/portfolio/validate.ts';
+import { renderPortfolio } from '#lib/render/index.ts';
 import { diffPortfolios } from './diff';
 import { applyOp, applyOps, type EditOp } from './ops';
 import { approve, createProject, proposed, redo, reject, repair, stage, stageAll, undo, unstage } from './project';
@@ -169,7 +169,7 @@ describe('diff', () => {
 		const d = diffPortfolios(before, r.portfolio);
 		expect(d).toContainEqual({ kind: 'changed', where: 'Profile › name', before: 'Alex Morgan', after: 'Sam' });
 		expect(d.some((e) => e.kind === 'moved' && e.where === 'Section order')).toBe(true);
-		expect(d.some((e) => e.kind === 'removed' && e.before === 'Trail Finder')).toBe(true);
+		expect(d).toContainEqual({ kind: 'removed', where: 'Projects › Trail Finder', before: 'Trail Finder' });
 	});
 });
 
@@ -193,5 +193,34 @@ describe('render', () => {
 			expect(html).toContain('Alex Morgan');
 			expect(html).not.toContain('State University');
 		}
+	});
+});
+
+describe('friendlyError', async () => {
+	const { friendlyError } = await import('./editor.svelte');
+	it('turns schema paths into field names', () => {
+		expect(friendlyError('sections[2].data.items[0].url must be an http(s) or mailto link')).toBe('Link must be an http(s) or mailto link');
+		expect(friendlyError('theme.accent must be a colour like #2563eb')).toBe('Accent colour must be a colour like #2563eb');
+		expect(friendlyError('Section "x" does not exist')).toBe('Section "x" does not exist');
+	});
+});
+
+describe('export', async () => {
+	const { staticSiteFiles, svelteKitFiles } = await import('#lib/export/export.ts');
+	it('static export is a single self-contained page', () => {
+		const files = staticSiteFiles(base());
+		expect(files['index.html']).toContain('<!doctype html>');
+		expect(files['index.html']).not.toMatch(/<script|<link[^>]+stylesheet/);
+	});
+
+	it('SvelteKit export ships the renderer, types, content and a SvelteKit 3 tsconfig', () => {
+		const files = svelteKitFiles(base());
+		for (const f of ['src/lib/render/index.ts', 'src/lib/render/templates/bento.ts', 'src/lib/portfolio/types.ts', 'src/lib/portfolio.json', 'src/routes/+page.svelte'])
+			expect(files[f], f).toBeTruthy();
+		expect(JSON.parse(files['tsconfig.json']).extends).toBe('$app/tsconfig');
+		expect(JSON.parse(files['src/lib/portfolio.json']).profile.name).toBe('Alex Morgan');
+		// Renderer must stay self-contained so the copied files compile on their own.
+		for (const [path, src] of Object.entries(files))
+			if (path.startsWith('src/lib/render/')) expect(src, path).not.toMatch(/from '(#lib|\$lib)/);
 	});
 });

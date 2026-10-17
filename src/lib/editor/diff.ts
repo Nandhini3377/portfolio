@@ -1,8 +1,8 @@
 // Field-level diff between two portfolios, for the change review screen.
 // Lists of objects with ids are matched by id so reorders and edits read clearly.
 
-import { SECTION_LABELS } from '#lib/portfolio/defaults';
-import type { Portfolio, Section } from '#lib/portfolio/types';
+import { SECTION_LABELS } from '#lib/portfolio/defaults.ts';
+import type { Portfolio, Section } from '#lib/portfolio/types.ts';
 
 export type DiffKind = 'added' | 'removed' | 'changed' | 'moved';
 
@@ -57,7 +57,8 @@ function walk(before: Json, after: Json, where: string[], out: DiffEntry[]) {
 		const a = after as Record<string, Json>;
 		for (const key of new Set([...Object.keys(b), ...Object.keys(a)])) {
 			if (key === 'id') continue;
-			walk(b[key], a[key], [...where, key], out);
+			// Container keys add noise to labels ("Projects › items › …").
+			walk(b[key], a[key], key === 'items' ? where : [...where, key], out);
 		}
 		return;
 	}

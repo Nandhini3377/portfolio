@@ -2,7 +2,7 @@
 // today; the local model will emit the same JSON in Phase 2. Operations carry any
 // generated ids so replaying them is deterministic.
 
-import { SECTION_LABELS } from '#lib/portfolio/defaults';
+import { SECTION_LABELS } from '#lib/portfolio/defaults.ts';
 import type {
 	Font,
 	Layout,
@@ -12,8 +12,8 @@ import type {
 	SectionType,
 	TemplateId,
 	ThemeMode
-} from '#lib/portfolio/types';
-import { validatePortfolio } from '#lib/portfolio/validate';
+} from '#lib/portfolio/types.ts';
+import { validatePortfolio } from '#lib/portfolio/validate.ts';
 
 export type ItemValue = string | string[];
 

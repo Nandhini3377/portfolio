@@ -2,7 +2,7 @@
 // staged operations awaiting review. Nothing reaches `committed` (and later GitHub)
 // without approve(). Undo/redo work on approved snapshots.
 
-import type { Portfolio } from '#lib/portfolio/types';
+import type { Portfolio } from '#lib/portfolio/types.ts';
 import { applyOp, applyOps, supersedes, type EditOp } from './ops';
 
 export const HISTORY_LIMIT = 50;

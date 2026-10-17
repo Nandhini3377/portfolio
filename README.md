@@ -1,54 +1,25 @@
-# sv
+# Offline AI Portfolio Builder
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Build a personal portfolio website on your own device: pick a template, edit content, review every change before it's applied, and export a static site or a SvelteKit project. A local AI model (chat editing), GitHub push and Vercel deploy are coming in later phases.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+## Run it
 
 ```sh
-# create a new project
-npx sv create my-app
+npm install        # if npm 10 fails with "reading 'edgesOut'", use: npx npm@11 install
+npm run dev        # http://localhost:5173
 ```
 
-To recreate this project with the same configuration:
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run build` | Static build into `build/` (deployable to Vercel) |
+| `npm run preview` | Serve the production build (restart it after each rebuild) |
+| `npm test` | Unit tests |
+| `npm run check` | Type check |
 
-```sh
-# recreate this project
-npx sv@1.1.1 create --template minimal --types ts --add tailwindcss="plugins:forms" vitest="usages:unit" prettier sveltekit-adapter="adapter:static" --install npm .
-```
+## Project docs
 
-## Adding features
-
-Add features to your project with `sv add`:
-
-```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
+- [docs/PRD.md](docs/PRD.md) — product requirements
+- [docs/DECISIONS.md](docs/DECISIONS.md) — decisions that refine the PRD
+- [docs/PROGRESS.md](docs/PROGRESS.md) — what's done and what's next
+- [CLAUDE.md](CLAUDE.md) — working rules for Claude Code
